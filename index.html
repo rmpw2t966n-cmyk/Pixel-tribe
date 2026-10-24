@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Pixel Tribe</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#10180f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pixel Tribe">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+:root{--bg:#10180f;--panel:#1b281f;--line:#34493c;--text:#efe6cf;--gold:#f0b64a;--red:#e2573f;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--bg)}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;touch-action:none}
+body{display:flex;flex-direction:column}
+[hidden]{display:none!important}
+#res{display:flex;flex-wrap:wrap;gap:4px 12px;padding:8px 12px;background:var(--panel);border-bottom:2px solid var(--line);font-size:14px;font-weight:700}
+#res small{color:var(--gold);font-weight:700}
+#stage{flex:1;min-height:0;position:relative}
+canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;touch-action:none}
+#toast{position:absolute;top:8px;left:50%;transform:translateX(-50%);max-width:88%;background:rgba(16,24,15,.92);border:1px solid var(--gold);padding:7px 14px;border-radius:6px;font-size:13px;text-align:center;pointer-events:none;opacity:0;transition:opacity .25s}
+#toast.on{opacity:1}
+#acts{display:flex;gap:6px;padding:8px 8px 10px;background:var(--panel);border-top:2px solid var(--line);overflow-x:auto}
+#acts button{flex:0 0 auto;min-width:78px;height:54px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;background:#27402f;color:var(--text);border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px;font-weight:700}
+#acts button i{font-style:normal;font-size:10px;font-weight:400;opacity:.85}
+#acts button:disabled,#sheet button:disabled{opacity:.4}
+#acts button.on{background:var(--gold);color:#1a1205;border-color:#fff}
+#sheet{position:absolute;left:8px;right:8px;bottom:8px;max-height:70%;overflow:auto;background:rgba(27,40,31,.97);border:2px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
+#sheet h3{font-size:15px;color:var(--gold)}
+#sheet button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:9px 12px;background:#27402f;color:var(--text);border:1px solid var(--line);border-radius:8px;font:inherit;font-size:14px;text-align:left}
+#sheet button i{font-style:normal;font-size:12px;opacity:.85}
+#end,#pick{position:absolute;inset:0;overflow:auto;background:rgba(10,15,10,.88);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px}
+#end h2,#pick h2{font-size:26px;color:var(--gold)}
+.tr{width:100%;max-width:420px;text-align:left!important;display:flex;flex-direction:column;gap:3px;background:#27402f!important;color:var(--text)!important;border:2px solid var(--line)!important;font-size:14px!important;padding:10px 14px!important;flex:0 0 auto}.tr b{font-size:16px}.tr i{font-style:normal;font-weight:400;font-size:12px;opacity:.9}
+#end button,#pick button{padding:14px 28px;font:inherit;font-size:16px;font-weight:700;background:var(--gold);color:#1a1205;border:0;border-radius:8px}
+</style>
+</head>
+<body>
+<div id="res"></div>
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div id="toast"></div>
+  <div id="sheet" hidden></div>
+  <div id="end" hidden><h2 id="endT"></h2><p id="endP"></p><button id="again">Play again</button></div>
+  <div id="pick" hidden></div>
+</div>
+<div id="acts"></div>
+<script>
+const $=i=>document.getElementById(i),cv=$('c'),cx=cv.getContext('2d');
+const W=72,H=46,T=16,R=Math.random,ri=(a,b)=>Math.floor(a+R()*(b-a+1));
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const nearest=(l,p,m=99)=>{let b=null,bd=m;for(const e of l){const d=dist(e,p);if(d<bd){bd=d;b=e}}return b};
+const IC={food:'🍖',wood:'🪵',stone:'🪨'};
+const KIND={
+ v:{hp:25,sp:.9,dmg:2,rng:1.2,cd:30,c:{food:15}},
+ w:{hp:45,sp:1.1,dmg:8,rng:1.3,cd:22,c:{food:25,stone:10}},
+ a:{hp:30,sp:1,dmg:6,rng:5,cd:34,c:{food:20,wood:20}}};
+const TECH=[
+ {id:'tools',n:'Flint tools',d:'+1 resource per strike',c:{wood:40},max:3},
+ {id:'weap',n:'Hardened spears',d:'+25% damage, +8 health',c:{stone:40},max:3},
+ {id:'fert',n:'Fertility rites',d:'+3 population room',c:{food:40},max:3},
+ {id:'bow',n:'Bows',d:'Unlocks archers',c:{wood:60,stone:30},max:1}];
+const CAMPS=[[60,8],[62,36],[34,40]],HOME=[10,23];
+let S,U,B,RS,FX,CP,MAP,terrain,sel=[],cam={x:0,y:0},Z=2,mode=null,ptr={x:0,y:0},sheetOpen=false,sheetSig='',fc=0,tt;
+
+const costStr=c=>Object.entries(c).map(([k,v])=>IC[k]+v).join(' ');
+const afford=c=>Object.entries(c).every(([k,v])=>S[k]>=v);
+const pay=c=>Object.entries(c).forEach(([k,v])=>S[k]-=v);
+const scale=(c,m)=>Object.fromEntries(Object.entries(c).map(([k,v])=>[k,v*m]));
+const popMax=()=>2+4*B.filter(b=>b.b=='hut').length+3*S.t.fert;
+const mine=()=>U.filter(u=>u.team=='p');
+const tot=()=>Object.values(S.t).reduce((a,b)=>a+b,0);const era=()=>TR.forms[Math.min(3,Math.floor(tot()/3))];
+function toast(t){snd(t);const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),2600)}
+
+function mk(k,x,y,team,home){
+ const u={k,x,y,team,hp:0,cd:0,a:0,o:null,home,raid:0};
+ u.hp=u.mhp=Math.round((KIND[k].hp+(team=='p'&&k!='v'?S.t.weap*8:0))*(team=='p'?TR.hp:1));U.push(u);return u}
+
+function newGame(){
+ S={food:30,wood:25,stone:15,t:{tools:0,weap:0,fert:0,bow:0,gift:0},time:0,raid:3600,over:false,pcd:0,shield:0,haste:0};TECH.length=4;TECH.push({id:'gift',n:TR.gift,d:TR.gd,c:TR.gc,max:3});
+ U=[];B=[];RS=[];FX=[];CP=[];sel=[];mode=null;sheetOpen=false;
+ MAP=[...Array(H)].map(()=>Array(W).fill(0));
+ const keep=[HOME,...CAMPS],nr=(x,y,l,r)=>l.some(([a,b])=>Math.hypot(a-x,b-y)<r);
+ for(let i=0;i<7;i++){const x=ri(6,W-6),y=ri(4,H-4),r=ri(2,4);if(nr(x,y,keep,r+9)){i--;continue}
+  for(let yy=-r;yy<=r;yy++)for(let xx=-r;xx<=r;xx++)if(xx*xx+yy*yy<=r*r+R()*3&&MAP[y+yy]&&MAP[y+yy][x+xx]!==undefined)MAP[y+yy][x+xx]=1}
+ const add=(type,n,min,rad=999)=>{for(let i=0,t=0;i<n&&t<2000;t++){
+  const x=ri(1,W-2),y=ri(1,H-2),d=Math.hypot(x-HOME[0],y-HOME[1]);
+  if(MAP[y][x]||d<min||d>rad||RS.some(r=>(r.x|0)==x&&(r.y|0)==y)||nr(x,y,CAMPS,5))continue;
+  const m={tree:12,bush:8,rock:14}[type];RS.push({type,x:x+.5,y:y+.5,n:m,m,re:0});i++}};
+ add('bush',5,3,9);add('tree',9,4,11);add('rock',4,4,10);
+ add('tree',120,4);add('bush',55,3);add('rock',40,5);
+ B.push({b:'hut',team:'p',x:HOME[0]+.5,y:HOME[1]+.5,hp:100,mhp:100});
+ for(let i=0;i<3;i++)mk('v',HOME[0]+i*1.2,HOME[1]+2,'p');
+ CAMPS.forEach(([x,y],id)=>{const c={camp:true,team:'e',id,x:x+.5,y:y+.5,hp:220,mhp:220};CP.push(c);
+  for(let k=0;k<3;k++)mk('w',x+R()*3-1,y+2+R(),'e',c)});
+ bake();sel=[U[0]];$('end').hidden=true;fit();
+ cam.x=HOME[0]*T-cv.width/Z/2;cam.y=HOME[1]*T-cv.height/Z/2;clampCam();
+ toast(TR.n+': tap a villager, then a tree, bush or rock')}
+
+function bake(){
+ terrain=document.createElement('canvas');terrain.width=W*T;terrain.height=H*T;const g=terrain.getContext('2d');
+ const hs=(x,y,i)=>{let h=(x*374761393+y*668265263+i*1274126177)>>>0;h=((h^(h>>>13))*1274126177)>>>0;return(h&255)/255};
+ for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+  const w=MAP[y][x],sh=!w&&[[1,0],[-1,0],[0,1],[0,-1]].some(([a,b])=>MAP[y+b]&&MAP[y+b][x+a]===1),px=x*T,py=y*T;
+  g.fillStyle=w?(hs(x,y,0)<.5?'#2c7fb8':'#3490c6'):sh?'#b9a96a':Math.hypot(x-HOME[0],y-HOME[1])<3&&hs(x,y,4)>.25?'#7a5c3a':['#3f7d36','#448439','#3a7432'][hs(x,y,0)*3|0];
+  g.fillRect(px,py,T,T);
+  if(!w&&!sh&&hs(x,y,1)<.35){g.fillStyle='#5a9a48';g.fillRect(px+(hs(x,y,2)*12|0),py+(hs(x,y,3)*12|0),2,3)}
+  if(w&&hs(x,y,1)>.7){g.fillStyle='#7cc4e8';g.fillRect(px+(hs(x,y,2)*10|0),py+(hs(x,y,3)*12|0),4,1)}}}
+
+function fit(){cv.width=cv.clientWidth;cv.height=cv.clientHeight;Z=cv.width<700?2:3;clampCam()}
+function clampCam(){cam.x=Math.max(0,Math.min(W*T-cv.width/Z,cam.x));cam.y=Math.max(0,Math.min(H*T-cv.height/Z,cam.y))}
+addEventListener('resize',fit);
+
+// ---------- movement & combat ----------
+const blocked=(x,y)=>x<0||y<0||x>=W||y>=H||MAP[y|0][x|0]===1;
+function step(u,tx,ty,s){
+ const d=Math.hypot(tx-u.x,ty-u.y);if(d<.05)return d;
+ const k=Math.min(s,d)/d,nx=u.x+(tx-u.x)*k,ny=u.y+(ty-u.y)*k;
+ if(!blocked(nx,ny)){u.x=nx;u.y=ny}else if(!blocked(nx,u.y))u.x=nx;else if(!blocked(u.x,ny))u.y=ny;
+ u.a++;return d}
+function hit(t,d){
+ t.hp-=t.team=='p'?d*TR.dr*(S.shield>0?.4:1):d;FX.push({l:14,x:t.x,y:t.y-.4,p:1});
+ if(t.hp>0)return;
+ if(t.camp){S.food+=30;S.wood+=30;S.stone+=20;toast('Camp destroyed! Loot taken');
+  U.forEach(u=>{if(u.home==t)u.home=null});
+  if(CP.every(c=>c.hp<=0))end(true)}
+ else if(t.team=='e')S.food+=4}
+function fight(u,K,t){
+ const d=dist(u,t)-(t.b||t.camp?.8:0);
+ if(d>K.rng+(u.team=='p'&&K.rng>2?TR.rg:0)){step(u,t.x,t.y,K.sp*.07*(u.team=='p'?TR.sp*(S.haste>0?1.8:1):1));return}
+ if(u.cd<=0){u.cd=K.cd;
+  hit(t,K.dmg*(u.team=='p'?(1+.25*S.t.weap)*(u.k=='v'?1:TR.dmg):1+S.time/36000));
+  FX.push({l:8,x:u.x,y:u.y,x2:t.x,y2:t.y,r:K.rng>2})}}
+const RES={tree:'wood',bush:'food',rock:'stone'},RC={food:'#ff9d6b',wood:'#d9a066',stone:'#d6dde2'};
+function pAI(u,K,foes){
+ const o=u.o,m=TR.sp*(S.haste>0?1.8:1);if(u.cd>0)u.cd--;
+ if(!o){if(u.k!='v'){const t=nearest(foes,u,6);if(t)u.o={t:'atk',e:t}}
+  else{const ty={food:'bush',wood:'tree',stone:'rock'};for(const k of ['food','wood','stone'].sort((a,b)=>S[a]-S[b])){const r=nearest(RS.filter(q=>q.type==ty[k]&&q.n>0),u,14);if(r){u.o={t:'gather',r};break}}}
+  return}
+ if(o.t=='move'){if(step(u,o.x,o.y,K.sp*.07*m)<.15)u.o=null}
+ else if(o.t=='gather'){const r=o.r;
+  if(r.n<=0){const nx=nearest(RS.filter(q=>q.type==r.type&&q.n>0),r,10);u.o=nx?{t:'gather',r:nx}:null}
+  else if(dist(u,r)>1.1)step(u,r.x,r.y,K.sp*.07*m);
+  else if(u.cd<=0){u.cd=26;const g=1+S.t.tools+TR.gat,res=RES[r.type];r.n-=g;S[res]+=g;u.a++;
+   FX.push({l:30,x:r.x,y:r.y-1,txt:'+'+g,c:RC[res]})}}
+ else if(o.t=='atk'){if(o.e.hp<=0)u.o=null;else fight(u,K,o.e)}}
+function eAI(u,K,tg){
+ if(u.cd>0)u.cd--;if(!u.home)u.raid=1;
+ const t=nearest(tg,u,u.raid?99:7);
+ if(t){fight(u,K,t);return}
+ if(u.home&&dist(u,u.home)>3.5)step(u,u.home.x,u.home.y+2,K.sp*.05)}
+
+function update(){
+ S.time++;if(S.pcd>0)S.pcd--;if(S.shield>0)S.shield--;if(S.haste>0)S.haste--;
+ const P=mine(),E=U.filter(u=>u.team=='e'),foes=[...E,...CP.filter(c=>c.hp>0)],tg=[...P,...B];
+ for(const u of U){const K=KIND[u.k];u.team=='p'?pAI(u,K,foes):eAI(u,K,tg)}
+ for(const b of B)if(b.b=='tower'){if(b.cd>0)b.cd--;else{const t=nearest(E,b,7);if(t){b.cd=40;hit(t,7*TR.tw);FX.push({l:8,x:b.x,y:b.y-1,x2:t.x,y2:t.y,r:1})}}}
+ CP.forEach(c=>{if(c.hp>0&&S.time%900==c.id*300&&E.filter(u=>u.home==c).length<5)mk(S.time>7200&&R()<.4?'a':'w',c.x+R()*2-1,c.y+2,'e',c)});
+ if(S.time>=S.raid){S.raid+=Math.max(1800,5400-S.time/6);
+  const live=CP.filter(c=>c.hp>0);
+  if(live.length){const c=live[ri(0,live.length-1)],n=2+Math.floor(S.time/5400);
+   for(let i=0;i<n;i++)mk(R()<.3&&S.time>5000?'a':'w',c.x+R()*3-1.5,c.y+2,'e',c).raid=1;
+   toast('⚠ Raiders are heading for your camp!')}}
+ RS.forEach(r=>{if(r.n<=0&&++r.re>3000){r.n=r.m;r.re=0}});
+ FX=FX.filter(f=>--f.l>0);
+ U=U.filter(u=>u.hp>0);B=B.filter(b=>b.hp>0);sel=sel.filter(u=>u.hp>0);
+ if(!S.over&&!mine().length&&S.food<15)end(false)}
+function end(win){S.over=true;try{localStorage.removeItem(KEY)}catch(e){}$('endT').textContent=win?'Victory!':'Your tribe has fallen';
+ $('endP').textContent=win?'Every enemy camp is ash. The land is yours.':'No villagers left and no food to recruit more.';$('end').hidden=false}
+
+// ---------- actions ----------
+function train(k){
+ const K=KIND[k];
+ if(k=='a'&&!S.t.bow)return toast('Research Bows first');
+ if(mine().length>=popMax())return toast('Tribe is full. Build a hut');
+ if(!afford(K.c))return toast('Need '+costStr(K.c));
+ pay(K.c);const h=B.find(b=>b.b=='hut')||{x:HOME[0],y:HOME[1]};
+ mk(k,h.x+R()*2-1,h.y+1.5,'p');toast({v:'Villager',w:'Warrior',a:'Archer'}[k]+' joined the tribe')}
+function canPlace(x,y){const p={x,y};
+ return x>1&&y>1&&x<W-1&&y<H-1&&!MAP[y|0][x|0]&&!B.some(b=>dist(b,p)<1.6)&&!RS.some(r=>r.n>0&&dist(r,p)<1)&&!CP.some(c=>c.hp>0&&dist(c,p)<6)}
+const BUILD={hut:{c:{wood:20,stone:10},hp:100},tower:{c:{wood:20,stone:30},hp:160}};
+function place(wx,wy){
+ const x=Math.floor(wx)+.5,y=Math.floor(wy)+.5,d=BUILD[mode];
+ if(!afford(d.c)){mode=null;return toast('Need '+costStr(d.c))}
+ if(!canPlace(x,y))return toast('Blocked. Pick open ground');
+ pay(d.c);B.push({b:mode,team:'p',x,y,hp:d.hp,mhp:d.hp,cd:0});toast(mode=='hut'?'Hut built: +4 population room':'Tower built');mode=null}
+function buy(id){
+ const t=TECH.find(q=>q.id==id),l=S.t[id],c=scale(t.c,l+1);
+ if(l>=t.max||!afford(c))return;const e0=era();pay(c);S.t[id]++;if(era()!=e0){mine().forEach(u=>{u.mhp+=10;u.hp=u.mhp});S.pcd=0}
+ if(id=='weap')mine().forEach(u=>{if(u.k!='v'){u.mhp+=8;u.hp+=8}});
+ toast(era()!=e0?'EVOLVED into the '+era()+'! Power recharged':t.n+' learned');sheetSig=''}
+function rally(){
+ const f=mine().filter(u=>u.k!='v');if(!f.length)return toast('No fighters to send');
+ const foes=[...U.filter(u=>u.team=='e'),...CP.filter(c=>c.hp>0)],t=nearest(foes,f[0]);
+ if(!t)return;f.forEach(u=>u.o={t:'atk',e:t});sel=f;toast('Fighters advance!')}
+const ACTS=[
+ {id:'pow',l:'Power',f:()=>power()},
+ {id:'v',l:'Villager',c:KIND.v.c,f:()=>train('v')},
+ {id:'w',l:'Warrior',c:KIND.w.c,f:()=>train('w')},
+ {id:'a',l:'Archer',c:KIND.a.c,f:()=>train('a'),lock:()=>!S.t.bow},
+ {id:'hut',l:'Hut',c:BUILD.hut.c,f:()=>setMode('hut')},
+ {id:'tower',l:'Tower',c:BUILD.tower.c,f:()=>setMode('tower')},
+ {id:'ev',l:'Evolve',f:()=>{sheetOpen=!sheetOpen;sheetSig=''}},
+ {id:'army',l:'Army',f:()=>{sel=mine().filter(u=>u.k!='v');toast(sel.length+' fighters selected')}},
+ {id:'work',l:'Workers',f:()=>{sel=mine().filter(u=>u.k=='v');toast(sel.length+' villagers selected')}},
+ {id:'ra',l:'Rally',f:rally},
+ {id:'spd',l:'Speed',f:()=>{spd=spd==1?2:spd==2?0:1}},
+ {id:'snd',l:'Sound',f:()=>{mute=!mute}}];
+function setMode(m){mode=mode==m?null:m;if(mode)toast('Tap the map to place')}
+$('acts').innerHTML=ACTS.map(a=>`<button id="b_${a.id}"><b>${a.l}</b><i>${a.c?costStr(a.c):'&nbsp;'}</i></button>`).join('');
+ACTS.forEach(a=>$('b_'+a.id).onclick=()=>{if(!S.over)a.f();ui()});
+$('sheet').onclick=e=>{const b=e.target.closest('button');if(b)buy(b.dataset.t)};
+const tr=o=>({dmg:1,hp:1,sp:1,gat:0,rg:0,tw:1,dr:1,cd:2400,...o});
+const TRIBES=[
+ tr({id:'ember',n:'Ember Clan',acc:'#ff8a3d',dmg:1.3,hp:.95,pw:'Firestorm',d:'Fierce raiders. Warriors and archers hit 30% harder. Power: Firestorm burns every foe near your selected unit.',col:{v:'#ffb27a',w:'#e8431f',a:'#ff8a3d'},forms:['Cinder Clan','Flame Warband','Inferno Horde','Phoenix Tribe'],gift:'Dragon breath',gd:'Stronger, faster Firestorm',gc:{wood:50,stone:40}}),
+ tr({id:'moss',n:'Moss Folk',acc:'#7bd26b',gat:1,dmg:.9,pw:'Bloom',d:'Gatherers. Every strike yields +1. Power: Bloom heals the whole tribe and brings in food.',col:{v:'#a8e08a',w:'#3f9a4a',a:'#c5e05a'},forms:['Moss Folk','Grove Wardens','Elder Canopy','World Tree Tribe'],gift:'Living roots',gd:'Stronger, faster Bloom',gc:{food:50,wood:40}}),
+ tr({id:'stone',n:'Stone Guard',acc:'#9fb4c7',hp:1.35,sp:.9,tw:1.6,dr:.9,cd:2700,pw:'Stoneskin',d:'Defenders. +35% health, towers hit 60% harder, slower to move. Power: Stoneskin cuts damage taken by 60%.',col:{v:'#b0c4d6',w:'#5f7d99',a:'#8fa8bd'},forms:['Stone Guard','Cliff Legion','Mountain Host','Titan Tribe'],gift:'Mountain heart',gd:'Longer Stoneskin, faster recharge',gc:{stone:60,wood:30}}),
+ tr({id:'storm',n:'Storm Riders',acc:'#5cc0d6',sp:1.25,hp:.9,rg:1.5,cd:2200,pw:'Stormrush',d:'Swift hunters. +25% speed, archers +1.5 range. Power: Stormrush makes your whole tribe sprint.',col:{v:'#8fdcec',w:'#2c8fb8',a:'#e0f4ff'},forms:['Storm Riders','Gale Pack','Tempest Horde','Sky Sovereigns'],gift:'Eye of the storm',gd:'Longer Stormrush, faster recharge',gc:{wood:50,food:40}})];
+let TR=null;
+function power(){
+ if(S.over)return;if(S.pcd>0)return toast('Power recharging: '+Math.ceil(S.pcd/60)+'s');
+ const p=1+.12*tot()+.2*S.t.gift,c=sel[0]||B[0]||{x:HOME[0],y:HOME[1]},k=TR.id;
+ if(k=='ember'){let n=0;U.forEach(u=>{if(u.team=='e'&&u.hp>0&&dist(u,c)<6){hit(u,22*p);n++}});CP.forEach(q=>{if(q.hp>0&&dist(q,c)<7)hit(q,22*p)});toast('Firestorm! '+n+' foes burned')}
+ else if(k=='moss'){mine().forEach(u=>u.hp=Math.min(u.mhp,u.hp+u.mhp*.6*p));B.forEach(b=>b.hp=Math.min(b.mhp,b.hp+b.mhp*.5));S.food+=Math.round(20*p);toast('Bloom! Tribe healed')}
+ else if(k=='stone'){S.shield=Math.round(420*p);toast('Stoneskin: damage greatly reduced')}
+ else{S.haste=Math.round(420*p);toast('Stormrush! Your tribe sprints')}
+ FX.push({l:25,ring:1,x:c.x,y:c.y,rad:k=='ember'?6:9,col:TR.acc});
+ S.pcd=Math.round(TR.cd/(1+.06*tot()+.15*S.t.gift))}
+function showPick(){const p=$('pick');p.hidden=false;$('end').hidden=true;
+ let sv=0;try{sv=localStorage.getItem(KEY)?1:0}catch(e){}
+ p.innerHTML='<h2>Choose your tribe</h2>'+(sv?'<button class="tr" data-i="c"><b style="color:#f0b64a">Continue your tribe</b><i>Pick up where you left off</i></button>':'')+TRIBES.map((t,i)=>`<button class="tr" data-i="${i}" style="border-color:${t.acc}!important"><b style="color:${t.acc}">${t.n}</b><i>${t.d}</i></button>`).join('')}
+$('pick').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.i=='c'){if(!load())toast('Save not found');return}TR=TRIBES[+b.dataset.i];$('pick').hidden=true;newGame()};
+$('again').onclick=showPick;
+const KEY='pixel-tribe-save-v1';let spd=1,AC=null,mute=false;
+function snd(t){if(mute||!AC)return;try{const big=/^EVOLVED|Victory|destroyed/.test(t),warn=t[0]=='⚠',o=AC.createOscillator(),g=AC.createGain(),n=AC.currentTime,d=big?.4:.1;
+ o.type=warn?'sawtooth':'square';o.frequency.value=warn?140:big?880:520;g.gain.setValueAtTime(.04,n);g.gain.exponentialRampToValueAtTime(.0001,n+d);o.connect(g);g.connect(AC.destination);o.start();o.stop(n+d)}catch(e){}}
+function save(){if(!S||S.over||!TR)return;try{localStorage.setItem(KEY,JSON.stringify({tr:TR.id,S,MAP,B,RS,CP,U:U.map(u=>({...u,o:null,home:u.home?u.home.id:null})),cam}))}catch(e){}}
+function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(!d)return false;
+ TR=TRIBES.find(t=>t.id==d.tr);S=d.S;MAP=d.MAP;B=d.B;RS=d.RS;CP=d.CP;FX=[];sel=[];mode=null;sheetOpen=false;sheetSig='';
+ TECH.length=4;TECH.push({id:'gift',n:TR.gift,d:TR.gd,c:TR.gc,max:3});
+ U=d.U.map(u=>({...u,home:u.home==null?null:CP[u.home]}));
+ bake();$('end').hidden=true;$('pick').hidden=true;fit();cam=d.cam;clampCam();toast('Welcome back, '+TR.n);return true}catch(e){return false}}
+setInterval(save,5000);addEventListener('pagehide',save);document.addEventListener('visibilitychange',()=>{if(document.hidden)save()});
+
+function ui(){
+ const P=mine();
+ $('res').innerHTML=`<span>🍖 ${S.food|0}</span><span>🪵 ${S.wood|0}</span><span>🪨 ${S.stone|0}</span><span>👥 ${P.length}/${popMax()}</span><span>🏕 ${CP.filter(c=>c.hp>0).length} camps</span><small>${era()}</small>`;
+ ACTS.forEach(a=>{const b=$('b_'+a.id);b.disabled=!!(a.lock&&a.lock())||!!(a.c&&!afford(a.c));b.classList.toggle('on',mode==a.id)});
+ $('b_a').lastChild.textContent=S.t.bow?costStr(KIND.a.c):'🔒 Bows';
+ $('b_pow').firstChild.textContent=TR.pw;$('b_pow').lastChild.textContent=S.pcd>0?Math.ceil(S.pcd/60)+'s':'Ready';$('b_pow').disabled=S.pcd>0;$('b_pow').style.borderColor=TR.acc;$('b_spd').firstChild.textContent=spd==1?'Speed 1x':spd==2?'Speed 2x':'Paused';$('b_snd').firstChild.textContent=mute?'Sound off':'Sound on';
+ const sh=$('sheet'),sig=sheetOpen+JSON.stringify(S.t)+TECH.map(t=>afford(scale(t.c,S.t[t.id]+1))?1:0).join('');
+ if(sig!=sheetSig){sheetSig=sig;sh.hidden=!sheetOpen;
+  if(sheetOpen)sh.innerHTML='<h3>'+era()+': evolve your tribe</h3>'+TECH.map(t=>{const l=S.t[t.id],full=l>=t.max,c=scale(t.c,l+1);
+   return`<button data-t="${t.id}" ${full||!afford(c)?'disabled':''}><b>${t.n} ${'●'.repeat(l)}${'○'.repeat(t.max-l)}</b><i>${t.d}. ${full?'Complete':costStr(c)}</i></button>`}).join('')}}
+
+// ---------- input ----------
+let dn=null;
+const MM={w:108,h:69,s:1.5};
+cv.onpointerdown=e=>{if(!AC)try{AC=new(window.AudioContext||window.webkitAudioContext)()}catch(x){}if(AC&&AC.state=='suspended')AC.resume();cv.setPointerCapture(e.pointerId);const r=cv.getBoundingClientRect();ptr={x:e.clientX-r.left,y:e.clientY-r.top};dn={x:e.clientX,y:e.clientY,cx:cam.x,cy:cam.y,m:0}};
+cv.onpointermove=e=>{const r=cv.getBoundingClientRect();ptr={x:e.clientX-r.left,y:e.clientY-r.top};
+ if(!dn)return;const dx=e.clientX-dn.x,dy=e.clientY-dn.y;if(Math.hypot(dx,dy)>8)dn.m=1;
+ if(dn.m){cam.x=dn.cx-dx/Z;cam.y=dn.cy-dy/Z;clampCam()}};
+cv.onpointerup=()=>{if(dn&&!dn.m)tap(ptr.x,ptr.y);dn=null};
+function tap(sx,sy){
+ if(S.over)return;
+ const mx=cv.width-MM.w-8,my=8;
+ if(sx>=mx&&sx<=mx+MM.w&&sy>=my&&sy<=my+MM.h){cam.x=(sx-mx)/MM.s*T-cv.width/Z/2;cam.y=(sy-my)/MM.s*T-cv.height/Z/2;clampCam();return}
+ const p={x:(sx/Z+cam.x)/T,y:(sy/Z+cam.y)/T};
+ if(mode)return place(p.x,p.y);
+ const own=nearest(mine(),p,.9);
+ if(own){sel=[own];return toast({v:'Villager',w:'Warrior',a:'Archer'}[own.k]+' selected')}
+ if(!sel.length)return toast('Tap one of your units first');
+ const foe=nearest(U.filter(u=>u.team=='e'),p,.9)||nearest(CP.filter(c=>c.hp>0),p,1.5);
+ if(foe){sel.forEach(u=>u.o={t:'atk',e:foe});return toast('Attack!')}
+ const res=nearest(RS.filter(r=>r.n>0),p,.9);
+ if(res){sel.forEach(u=>u.o=u.k=='v'?{t:'gather',r:res}:{t:'move',x:res.x,y:res.y+1});
+  return toast(sel.some(u=>u.k=='v')?'Gathering '+RES[res.type]:'Moving')}
+ sel.forEach((u,i)=>u.o={t:'move',x:p.x+(i%3-1)*.8,y:p.y+(Math.floor(i/3)%3-1)*.8})}
+
+// ---------- drawing ----------
+const rc=(c,x,y,w,h)=>{cx.fillStyle=c;cx.fillRect(Math.round(x),Math.round(y),w,h)};
+function bar(x,y,w,f,c){rc('#000',x,y,w,2);rc(c,x,y,Math.max(0,w*f),2)}
+function dRes(r){
+ const x=r.x*T-8,y=r.y*T-8;
+ if(r.type=='tree'){rc('rgba(0,0,0,.25)',x+3,y+13,10,3);rc('#5a3d2b',x+7,y+8,3,8);rc('#2e6b2a',x+2,y+1,12,9);rc('#3f8a35',x+4,y,8,6);rc('#2a5a24',x+3,y+7,10,3)}
+ else if(r.type=='bush'){rc('#527a2a',x+2,y+7,12,8);rc('#6c9a35',x+4,y+5,8,5);rc('#d84a4a',x+4,y+9,2,2);rc('#d84a4a',x+9,y+7,2,2);rc('#d84a4a',x+11,y+11,2,2)}
+ else{rc('#565a5e',x+2,y+12,12,3);rc('#6e7378',x+2,y+6,12,8);rc('#9aa1a6',x+4,y+4,7,5)}
+ if(r.n<r.m)bar(x+2,y+15,12,r.n/r.m,'#f0b64a')}
+function dB(b){
+ const x=b.x*T-8,y=b.y*T-8;
+ if(b.b=='hut'){rc('#8a5a2b',x+1,y+7,14,9);rc('#c9863a',x,y+3,16,5);rc('#e0a24f',x+2,y,12,4);rc('#3b2616',x+6,y+10,4,6)}
+ else{rc('#6b7176',x+2,y+1,12,4);rc('#8d9399',x+3,y+4,10,12);rc('#2a2d30',x+7,y+8,2,4);rc('#4fc3f7',x+7,y-4,5,3)}
+ if(b.hp<b.mhp)bar(x+1,y-3,14,b.hp/b.mhp,'#6ccf6c')}
+function dCamp(c){
+ const x=c.x*T-8,y=c.y*T-8;
+ rc('rgba(0,0,0,.3)',x-4,y+14,24,4);rc('#7a3f9a',x,y+2,16,14);rc('#9b59b6',x+3,y-2,10,6);rc('#2b1236',x+6,y+9,4,7);
+ rc('#cfc8b0',x+19,y-6,2,20);rc('#eee',x+18,y-10,4,4);bar(x-2,y-6,20,c.hp/c.mhp,'#e2573f')}
+function dU(u){
+ const px=u.x*T,py=u.y*T,b=(u.a>>3)&1,p=u.team=='p';
+ const c=p?TR.col[u.k]:(u.k=='w'?'#9b59b6':'#d96ad1');
+ if(sel.includes(u)){cx.strokeStyle='#f0b64a';cx.lineWidth=1;cx.beginPath();cx.ellipse(px,py+1,6,3,0,0,7);cx.stroke()}
+ rc('rgba(0,0,0,.3)',px-4,py,8,2);rc(c,px-3,py-7+b,6,7);rc('#e8c39e',px-2,py-11+b,4,4);rc(p?'#27384d':'#2b1236',px-3,py-12+b,6,2);
+ if(u.k=='w')rc('#ddd',px+4,py-12+b,1,9);if(u.k=='a')rc('#8b5a2b',px+4,py-10+b,1,7);
+ if(p&&S.shield>0)rc('rgba(159,180,199,.5)',px-5,py-12,10,13);if(p&&S.haste>0)rc('rgba(92,192,214,.45)',px-5,py-12,10,13);if(p&&tot()>=3)rc(TR.acc,px-1,py-14+b,2,2);if(p&&tot()>=7)rc(TR.acc,px-4,py-12+b,1,6);
+ if(u.hp<u.mhp)bar(px-5,py-15,10,u.hp/u.mhp,p?'#6ccf6c':'#e2573f')}
+function draw(){
+ const w=cv.width,h=cv.height;
+ cx.setTransform(1,0,0,1,0,0);cx.fillStyle='#10180f';cx.fillRect(0,0,w,h);
+ cx.setTransform(Z,0,0,Z,-Math.round(cam.x*Z),-Math.round(cam.y*Z));cx.imageSmoothingEnabled=false;
+ cx.drawImage(terrain,0,0);
+ const L=[];RS.forEach(r=>r.n>0&&L.push(r));B.forEach(b=>L.push(b));CP.forEach(c=>c.hp>0&&L.push(c));U.forEach(u=>L.push(u));
+ L.sort((a,b)=>a.y-b.y).forEach(e=>e.type?dRes(e):e.camp?dCamp(e):e.b?dB(e):dU(e));
+ for(const f of FX){
+  if(f.x2!==undefined){cx.strokeStyle=f.r?'#fff':'#ffe08a';cx.lineWidth=1;cx.beginPath();cx.moveTo(f.x*T,f.y*T-6);cx.lineTo(f.x2*T,f.y2*T-6);cx.stroke()}
+  else if(f.ring){cx.strokeStyle=f.col;cx.lineWidth=2;cx.beginPath();cx.arc(f.x*T,f.y*T,(25-f.l)*f.rad*T/25,0,7);cx.stroke()}
+  else if(f.p)rc('#c62828',f.x*T-1+(f.l%3),f.y*T-(14-f.l)*.6,2,2);
+  else{cx.font='bold 7px sans-serif';cx.fillStyle=f.c;cx.fillText(f.txt,f.x*T-5,f.y*T-(30-f.l)*.4)}}
+ if(mode){const gx=Math.floor((ptr.x/Z+cam.x)/T),gy=Math.floor((ptr.y/Z+cam.y)/T);
+  rc(canPlace(gx+.5,gy+.5)?'rgba(108,207,108,.55)':'rgba(226,87,63,.55)',gx*T,gy*T,T,T);
+  if(mode=='tower'){cx.strokeStyle='rgba(255,255,255,.5)';cx.beginPath();cx.arc(gx*T+8,gy*T+8,7*T,0,7);cx.stroke()}}
+ cx.setTransform(1,0,0,1,0,0);
+ cx.fillStyle=`rgba(10,20,50,${(Math.sin(S.time/2400-1)+1)/2*.32})`;cx.fillRect(0,0,w,h);
+ const mx=w-MM.w-8,my=8,s=MM.s;
+ cx.globalAlpha=.9;cx.drawImage(terrain,0,0,W*T,H*T,mx,my,MM.w,MM.h);cx.globalAlpha=1;
+ B.forEach(b=>rc('#f0b64a',mx+b.x*s-1,my+b.y*s-1,3,3));
+ CP.forEach(c=>c.hp>0&&rc('#ff4d6d',mx+c.x*s-2,my+c.y*s-2,5,5));
+ U.forEach(u=>rc(u.team=='p'?'#4fc3f7':'#d96ad1',mx+u.x*s,my+u.y*s,2,2));
+ cx.strokeStyle='#fff';cx.lineWidth=1;cx.strokeRect(mx+cam.x/T*s,my+cam.y/T*s,w/Z/T*s,cv.height/Z/T*s);
+ cx.strokeStyle='#34493c';cx.strokeRect(mx,my,MM.w,MM.h)}
+
+let last=0,acc=0;
+function loop(t){
+ acc+=Math.min(100,t-last)*spd;last=t;if(!S){requestAnimationFrame(loop);return}
+ while(acc>=16.67){acc-=16.67;if(!S.over)update()}
+ draw();if(++fc%8==0)ui();requestAnimationFrame(loop)}
+showPick();requestAnimationFrame(loop);
+</script>
+<script>
+['gesturestart','gesturechange','dblclick'].forEach(e=>document.addEventListener(e,x=>x.preventDefault()));
+document.addEventListener('contextmenu',e=>e.preventDefault());
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+</script>
+</body>
+</html>
+
+</html>
